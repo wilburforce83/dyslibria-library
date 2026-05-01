@@ -9,6 +9,9 @@ $(document).ready(function () {
     session: null,
     settings: null,
     users: [],
+    typographyProfiles: [],
+    activeTypographySelection: null,
+    typographySampleText: '',
     mobileMenuOpen: false,
     noticeTimer: null,
     pendingDeleteUser: null,
@@ -33,10 +36,17 @@ $(document).ready(function () {
   const $profileRole = $('#profileRole');
   const $profileStatus = $('#profileStatus');
   const $generalSection = $('#generalSection');
+  const $typographySection = $('#typographySection');
   const $usersSection = $('#usersSection');
   const $dangerSection = $('#dangerSection');
   const $themeColorSelect = $('#themeColorSelect');
   const $userList = $('#userList');
+  const $activeTypographyLabel = $('#activeTypographyLabel');
+  const $activeTypographyDescription = $('#activeTypographyDescription');
+  const $activeTypographyBadge = $('#activeTypographyBadge');
+  const $typographyProfileGrid = $('#typographyProfileGrid');
+  const $typographyFileInput = $('#typographyFileInput');
+  const $typographyJsonInput = $('#typographyJsonInput');
   const $backToLibraryButton = $('#backToLibraryButton');
   const $settingsInstallButton = $('#settingsInstallButton');
   const $settingsMenuToggle = $('#settingsMenuToggle');
@@ -120,6 +130,161 @@ $(document).ready(function () {
     return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
   }
 
+  function createTypographySelectionKey(profile) {
+    if (!profile) {
+      return '';
+    }
+
+    return `${profile.type}:${profile.id}`;
+  }
+
+  function scopeTypographyPreviewCss(cssText, scopeSelector) {
+    const source = String(cssText || '').trim();
+    if (!source) {
+      return '';
+    }
+
+    return source.replace(/(^|})\s*([^@{}][^{}]*)\{/g, function (_, boundary, selectors) {
+      const scopedSelectors = selectors
+        .split(',')
+        .map(function (selector) {
+          const trimmedSelector = selector.trim();
+          return trimmedSelector ? `${scopeSelector} ${trimmedSelector}` : '';
+        })
+        .filter(Boolean)
+        .join(',\n');
+
+      return `${boundary}\n${scopedSelectors} {`;
+    });
+  }
+
+  function createTypographyPreviewMarkup(profile, index) {
+    const preview = profile && profile.preview ? profile.preview : {};
+    const previewScopeId = `typography-preview-${String(profile.type || 'preset')}-${String(profile.id || index + 1)
+      .replace(/[^a-z0-9_-]+/gi, '-')
+      .toLowerCase()}-${index + 1}`;
+    const scopeSelector = `[data-typography-preview-scope="${previewScopeId}"]`;
+    const scopedCss = scopeTypographyPreviewCss(preview.css, scopeSelector);
+
+    return `${scopedCss ? `<style>${scopedCss}</style>` : ''}<div class="typography-preview-canvas" data-typography-preview-scope="${previewScopeId}">${preview.html || ''}</div>`;
+  }
+
+  function renderTypographyProfiles() {
+    $typographyProfileGrid.empty();
+
+    if (!state.typographyProfiles.length) {
+      $activeTypographyLabel.text('No typography profiles available');
+      $activeTypographyDescription.text('Import a custom Dyslibria profile JSON or restore the built-in presets.');
+      $activeTypographyBadge.text('Unavailable');
+      $typographyProfileGrid.append(
+        $('<div>').addClass('user-card').append(
+          $('<p>').text('No typography profiles are available yet.')
+        )
+      );
+      return;
+    }
+
+    const activeSelectionKey = createTypographySelectionKey(state.activeTypographySelection);
+    const activeProfile = state.typographyProfiles.find(function (profile) {
+      return createTypographySelectionKey(profile) === activeSelectionKey;
+    }) || state.typographyProfiles[0];
+
+    $activeTypographyLabel.text(activeProfile.label);
+    $activeTypographyDescription.text(
+      activeProfile.description || 'Dyslibria will use this profile for future EPUB conversions.'
+    );
+    $activeTypographyBadge.text(`Active: ${activeProfile.label}`);
+
+    state.typographyProfiles.forEach(function (profile, index) {
+      const isActive = createTypographySelectionKey(profile) === activeSelectionKey;
+      const previewMarkup = createTypographyPreviewMarkup(profile, index);
+      const $card = $('<article>')
+        .addClass('typography-card')
+        .toggleClass('is-active', isActive)
+        .attr('data-profile-type', profile.type)
+        .attr('data-profile-id', profile.id);
+      const $header = $('<div>').addClass('typography-card-header');
+      const $heading = $('<div>').addClass('typography-card-copy');
+      const $badgeRow = $('<div>').addClass('typography-card-badges');
+      const $title = $('<h3>').text(profile.label);
+      const $description = $('<p>').text(profile.description || 'Dyslibria typography profile');
+      const $preview = $('<div>').addClass('typography-preview').html(previewMarkup);
+      const $meta = $('<div>').addClass('typography-meta');
+      const $actions = $('<div>').addClass('section-actions');
+      const $selectButton = $('<button>')
+        .addClass(`ui button app-button ${isActive ? 'ghost' : 'accent'} use-typography-button`)
+        .attr('type', 'button')
+        .text(isActive ? 'Selected for conversion' : 'Use for new conversions')
+        .prop('disabled', isActive);
+
+      $badgeRow.append(
+        $('<span>').addClass('meta-pill').text(profile.isCustom ? 'Custom' : 'Built-in')
+      );
+
+      if (profile.isDefaultPreset) {
+        $badgeRow.append(
+          $('<span>').addClass('meta-pill').text('Dyslibria default')
+        );
+      }
+
+      if (isActive) {
+        $badgeRow.append(
+          $('<span>').addClass('meta-pill').text('Active')
+        );
+      }
+
+      if (profile.isCustom && profile.sourceKind) {
+        $meta.append(
+          $('<span>').text(
+            profile.sourceKind === 'reader-configuration'
+              ? 'Imported from reader configuration'
+              : 'Imported from profile JSON'
+          )
+        );
+      }
+
+      if (profile.importedFilename) {
+        $meta.append(
+          $('<span>').text(`File: ${profile.importedFilename}`)
+        );
+      }
+
+      if (profile.createdAt) {
+        $meta.append(
+          $('<span>').text(`Added ${new Date(profile.createdAt).toLocaleString()}`)
+        );
+      }
+
+      if (Array.isArray(profile.warnings) && profile.warnings.length) {
+        $meta.append(
+          $('<span>').text(`${profile.warnings.length} normalization warning${profile.warnings.length === 1 ? '' : 's'}`)
+        );
+      }
+
+      $heading.append($badgeRow, $title, $description);
+      $header.append($heading);
+      $actions.append($selectButton);
+
+      if (profile.isCustom) {
+        $actions.append(
+          $('<button>')
+            .addClass('ui button app-button ghost delete-typography-button')
+            .attr('type', 'button')
+            .text('Delete custom profile')
+        );
+      }
+
+      $card.append($header, $preview);
+
+      if ($meta.children().length) {
+        $card.append($meta);
+      }
+
+      $card.append($actions);
+      $typographyProfileGrid.append($card);
+    });
+  }
+
   function populateThemeColorOptions() {
     $themeColorSelect.empty();
 
@@ -189,6 +354,7 @@ $(document).ready(function () {
     $settingsHeading.text('Settings');
     $settingsIntroCopy.text('Manage system defaults, account access, and install behaviour from one place.');
     $generalSection.prop('hidden', user.role !== 'admin');
+    $typographySection.prop('hidden', user.role !== 'admin');
     $usersSection.prop('hidden', user.role !== 'admin');
     $dangerSection.prop('hidden', user.role !== 'admin');
   }
@@ -364,6 +530,19 @@ $(document).ready(function () {
     });
   }
 
+  function loadTypographyProfiles() {
+    if (!state.session || !state.session.canManageSystem || state.session.user.mustSetup) {
+      return $.Deferred().resolve().promise();
+    }
+
+    return $.get('/api/typography-profiles').then(function (payload) {
+      state.typographyProfiles = Array.isArray(payload && payload.profiles) ? payload.profiles : [];
+      state.activeTypographySelection = payload && payload.activeSelection ? payload.activeSelection : null;
+      state.typographySampleText = (payload && payload.sampleText) || '';
+      renderTypographyProfiles();
+    });
+  }
+
   function bindEvents() {
     $settingsMenuToggle.on('click', function () {
       state.mobileMenuOpen = !state.mobileMenuOpen;
@@ -498,6 +677,127 @@ $(document).ready(function () {
         });
       }).always(function () {
         setButtonBusy($button, false);
+      });
+    });
+
+    $typographyFileInput.on('change', function (event) {
+      const input = event.currentTarget;
+      const file = input && input.files ? input.files[0] : null;
+
+      if (!file) {
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function (loadEvent) {
+        const result = loadEvent && loadEvent.target ? loadEvent.target.result : '';
+        $typographyJsonInput.val(String(result || ''));
+
+        const currentLabel = String($('input[name="label"]', '#typographyImportForm').val() || '').trim();
+        if (!currentLabel) {
+          const fallbackLabel = String(file.name || '').replace(/\.json$/i, '');
+          $('input[name="label"]', '#typographyImportForm').val(fallbackLabel);
+        }
+      };
+      reader.onerror = function () {
+        showNotice('The JSON file could not be read on this device.', 'error', {
+          title: 'Import failed',
+          timeout: 0
+        });
+      };
+      reader.readAsText(file);
+    });
+
+    $('#clearTypographyJsonButton').on('click', function () {
+      $('#typographyImportForm').get(0).reset();
+      $typographyJsonInput.val('');
+    });
+
+    $('#typographyImportForm').on('submit', function (event) {
+      event.preventDefault();
+      const $button = $('#importTypographyButton');
+      const file = $typographyFileInput.get(0) && $typographyFileInput.get(0).files
+        ? $typographyFileInput.get(0).files[0]
+        : null;
+      const payload = {
+        label: $(this).find('input[name="label"]').val(),
+        profileJson: String($typographyJsonInput.val() || ''),
+        filename: file ? file.name : ''
+      };
+
+      setButtonBusy($button, true);
+
+      $.post('/api/typography-profiles/custom', payload, function (response) {
+        $('#typographyImportForm').get(0).reset();
+        $typographyJsonInput.val('');
+        showNotice(`Added ${response && response.profile && response.profile.label ? response.profile.label : 'the custom profile'}.`, 'success');
+        loadTypographyProfiles();
+      }).fail(function (xhr) {
+        const message = (xhr.responseJSON && xhr.responseJSON.message) || 'Unable to import the custom typography profile.';
+        showNotice(message, 'error', {
+          title: 'Profile import failed',
+          timeout: 0
+        });
+      }).always(function () {
+        setButtonBusy($button, false);
+      });
+    });
+
+    $typographyProfileGrid.on('click', '.use-typography-button', function () {
+      const $button = $(this);
+      const $card = $button.closest('.typography-card');
+      const payload = {
+        type: $card.data('profile-type'),
+        id: $card.data('profile-id')
+      };
+
+      setButtonBusy($button, true);
+
+      $.post('/api/typography-profiles/selection', payload, function (response) {
+        state.activeTypographySelection = response && response.activeSelection ? response.activeSelection : payload;
+        showNotice(`New uploads will use ${state.activeTypographySelection.label || 'the selected profile'}.`, 'success');
+        loadTypographyProfiles();
+      }).fail(function (xhr) {
+        const message = (xhr.responseJSON && xhr.responseJSON.message) || 'Unable to select the Dyslibria typography profile.';
+        showNotice(message, 'error', {
+          title: 'Profile was not selected',
+          timeout: 0
+        });
+      }).always(function () {
+        setButtonBusy($button, false);
+      });
+    });
+
+    $typographyProfileGrid.on('click', '.delete-typography-button', function () {
+      const $button = $(this);
+      const $card = $button.closest('.typography-card');
+      const profileId = $card.data('profile-id');
+      const profileLabel = String($card.find('h3').text() || 'this custom profile');
+
+      if (!window.confirm(`Delete "${profileLabel}" from Dyslibria typography profiles?`)) {
+        return;
+      }
+
+      setButtonBusy($button, true);
+
+      $.ajax({
+        url: `/api/typography-profiles/custom/${encodeURIComponent(profileId)}`,
+        type: 'DELETE',
+        success: function (response) {
+          showNotice(`Deleted ${profileLabel}.`, 'success');
+          state.activeTypographySelection = response && response.activeSelection ? response.activeSelection : state.activeTypographySelection;
+          loadTypographyProfiles();
+        },
+        error: function (xhr) {
+          const message = (xhr.responseJSON && xhr.responseJSON.message) || 'Unable to delete the custom typography profile.';
+          showNotice(message, 'error', {
+            title: 'Profile could not be deleted',
+            timeout: 0
+          });
+        },
+        complete: function () {
+          setButtonBusy($button, false);
+        }
       });
     });
 
@@ -719,7 +1019,7 @@ $(document).ready(function () {
 
     $.when(loadAppConfig(), loadSession()).then(function () {
       if (state.session && state.session.canManageSystem) {
-        return $.when(loadGeneralSettings(), loadUsers());
+        return $.when(loadGeneralSettings(), loadTypographyProfiles(), loadUsers());
       }
 
       return $.Deferred().resolve().promise();

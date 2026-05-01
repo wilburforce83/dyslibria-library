@@ -126,6 +126,8 @@ Current settings and tools available in the UI:
 - library path
 - external base URL
 - theme colour
+- Dyslibria conversion profile selection and preview
+- custom Dyslibria profile JSON import
 - user accounts and roles
 - password reset controls
 - install Dyslibria on this device
@@ -166,6 +168,24 @@ Changes the main accent colour across:
 - logs modal
 - reader chrome
 - PWA surfaces
+
+### Dyslibria conversion profiles
+
+Administrator accounts can choose which Dyslibria typography profile is used when new EPUBs are converted into the library.
+
+The typography section in `Settings` includes:
+
+- built-in Dyslibria presets
+- a live sample preview for each preset
+- custom profile JSON import
+- reader configuration JSON import
+- active profile selection for future conversions
+
+Important notes:
+
+- the selected profile affects new uploads and queued conversions going forward
+- existing processed books are not retroactively rewritten
+- imported custom profiles are stored on the server and can be selected again later
 
 ### User accounts and permissions
 

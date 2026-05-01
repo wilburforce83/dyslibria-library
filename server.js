@@ -17,8 +17,10 @@ const SimpleJsonDB = require('simple-json-db');
 const AdmZip = require('adm-zip');
 const xml = require('xmlbuilder');
 const {
+  DEFAULT_PRESET_ID,
   convertBook,
   inspectBook,
+  resolvePresetId,
   ConverterError,
   ConversionStepError
 } = require('dyslibria-converter');
@@ -38,6 +40,13 @@ const {
 const { listUploadBookPaths } = require('./utils/uploadDiscovery');
 const { createUserStore, DEFAULT_BOOTSTRAP_USERNAME, DEFAULT_BOOTSTRAP_PASSWORD } = require('./utils/userStore');
 const { compareSemver, pickLatestSemver } = require('./utils/versionUtils');
+const {
+  buildTypographyProfileCatalog,
+  importCustomTypographyProfile,
+  normalizeStoredCustomTypographyProfiles,
+  resolveTypographyConversionOptions,
+  resolveTypographySelection
+} = require('./utils/typographyProfiles');
 const packageMetadata = require('./package.json');
 
 const app = express();
@@ -142,6 +151,8 @@ const THEME_COLOR_OPTIONS = [
 ];
 const THEME_COLOR_MAP = Object.fromEntries(THEME_COLOR_OPTIONS.map((option) => [option.key, option]));
 const DEFAULT_THEME_COLOR = 'ember';
+const CUSTOM_TYPOGRAPHY_PROFILES_KEY = 'typographyCustomProfiles';
+const TYPOGRAPHY_SELECTION_KEY = 'typographyProfileSelection';
 
 function normalizeThemeColorKey(value) {
   const normalizedValue = String(value || '').trim().toLowerCase();
@@ -162,6 +173,40 @@ function getPublicAppConfig() {
     setupRequired: isSetupRequired(),
     bootstrapUsername: DEFAULT_BOOTSTRAP_USERNAME
   };
+}
+
+function readStoredCustomTypographyProfiles() {
+  return normalizeStoredCustomTypographyProfiles(
+    settingsDb.has(CUSTOM_TYPOGRAPHY_PROFILES_KEY)
+      ? settingsDb.get(CUSTOM_TYPOGRAPHY_PROFILES_KEY)
+      : []
+  );
+}
+
+function persistSettingsPatch(updates) {
+  settingsDb.JSON({
+    ...settingsDb.JSON(),
+    ...updates
+  });
+  settingsDb.sync();
+}
+
+function buildTypographySettingsPayload() {
+  return buildTypographyProfileCatalog({
+    storedSelection: settingsDb.has(TYPOGRAPHY_SELECTION_KEY)
+      ? settingsDb.get(TYPOGRAPHY_SELECTION_KEY)
+      : { type: 'preset', id: DEFAULT_PRESET_ID },
+    storedCustomProfiles: readStoredCustomTypographyProfiles()
+  });
+}
+
+function captureTypographyConversionSnapshot() {
+  return resolveTypographyConversionOptions(
+    settingsDb.has(TYPOGRAPHY_SELECTION_KEY)
+      ? settingsDb.get(TYPOGRAPHY_SELECTION_KEY)
+      : { type: 'preset', id: DEFAULT_PRESET_ID },
+    readStoredCustomTypographyProfiles()
+  );
 }
 
 function getDefaultUpdatePayload() {
@@ -312,7 +357,13 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(path.join(rootDir, 'public')));
+app.use(express.static(path.join(rootDir, 'public'), {
+  setHeaders(res, filePath) {
+    if (path.basename(filePath) === 'app-sw.js') {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  }
+}));
 
 function isSetupRequired() {
   return !userStore.hasUsers();
@@ -875,7 +926,10 @@ function enqueueFile(job) {
     void processNextFile();
   }
 
-  appendConversionLog('info', `Queued ${job.outputFilename} for conversion.`);
+  appendConversionLog(
+    'info',
+    `Queued ${job.outputFilename} for conversion using ${job.typographyProfile.label}.`
+  );
 
   return true;
 }
@@ -897,7 +951,10 @@ async function processEpubJob(job) {
 
   try {
     console.log(`Starting to process EPUB file: ${job.uploadPath}`);
-    appendConversionLog('info', `Starting conversion for ${job.outputFilename}.`);
+    appendConversionLog(
+      'info',
+      `Starting conversion for ${job.outputFilename} with ${job.typographyProfile.label}.`
+    );
 
     await ensureDirectoriesExist();
     const result = await convertBook(job.uploadPath, {
@@ -907,6 +964,7 @@ async function processEpubJob(job) {
       tempRootDir: tempDir,
       maxArchiveEntries: MAX_EPUB_ARCHIVE_ENTRIES,
       maxExtractBytes: MAX_EPUB_EXTRACT_BYTES,
+      ...job.typographyProfile.convertOptions,
       logger: (event) => appendConverterEventLog(job.outputFilename, event)
     });
 
@@ -914,7 +972,7 @@ async function processEpubJob(job) {
     console.log(`Successfully processed: ${job.uploadPath}`);
     appendConversionLog(
       'success',
-      `Finished converting ${job.outputFilename} (${result.stats.processedFiles} content file${result.stats.processedFiles === 1 ? '' : 's'} in ${result.stats.durationMs} ms).`
+      `Finished converting ${job.outputFilename} with ${job.typographyProfile.label} (${result.stats.processedFiles} content file${result.stats.processedFiles === 1 ? '' : 's'} in ${result.stats.durationMs} ms).`
     );
   } catch (error) {
     const message = getConversionFailureMessage(error);
@@ -969,10 +1027,12 @@ async function handleWatchedUpload(filePath) {
   }
 
   const outputFilename = await allocateOutputFilename(path.basename(filePath));
+  const typographyProfile = captureTypographyConversionSnapshot();
   enqueueFile({
     id: uuidv4(),
     uploadPath: filePath,
-    outputFilename
+    outputFilename,
+    typographyProfile
   });
   appendConversionLog('info', `Detected new upload ${path.basename(filePath)}.`);
 }
@@ -995,10 +1055,12 @@ async function queueExistingUploads() {
 
   for (const uploadPath of existingUploadPaths) {
     const outputFilename = await allocateOutputFilename(path.basename(uploadPath));
+    const typographyProfile = captureTypographyConversionSnapshot();
     const didQueue = enqueueFile({
       id: uuidv4(),
       uploadPath,
-      outputFilename
+      outputFilename,
+      typographyProfile
     });
 
     if (didQueue) {
@@ -1375,7 +1437,13 @@ function guardAuthenticatedStatic(req, res, next) {
 }
 
 // Serve authenticated content
-app.use('/authenticated', guardAuthenticatedStatic, express.static(path.join(rootDir, 'authenticated')));
+app.use('/authenticated', guardAuthenticatedStatic, express.static(path.join(rootDir, 'authenticated'), {
+  setHeaders(res, filePath) {
+    if (/\.(?:html|css|js)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  }
+}));
 app.use('/processed', requireCatalogAuth, express.static(processedDir));
 
 // Route to get the list of EPUBs
@@ -1644,6 +1712,7 @@ app.post('/upload', requireAdmin, async (req, res) => {
   const epubFiles = Array.isArray(req.files.epubFiles) ? req.files.epubFiles : [req.files.epubFiles];
   const stagedJobs = [];
   const queuedFiles = [];
+  const typographyProfile = captureTypographyConversionSnapshot();
 
   try {
     for (const epubFile of epubFiles) {
@@ -1660,7 +1729,8 @@ app.post('/upload', requireAdmin, async (req, res) => {
       stagedJobs.push({
         id: uuidv4(),
         uploadPath,
-        outputFilename
+        outputFilename,
+        typographyProfile
       });
 
       if (epubFile.tempFilePath && epubFile.tempFilePath !== uploadPath) {
@@ -1749,20 +1819,143 @@ app.get('/settings', requireAdmin, (req, res) => {
 // Route to update settings
 app.post('/settings', requireAdmin, (req, res) => {
   try {
-    const currentSettings = settingsDb.JSON();
     const updates = normalizeSettingsUpdate(req.body);
     const restartSensitiveKeys = ['webdavPort', 'opdsPort', 'uploadPath', 'libraryPath', 'baseUrl'];
     const requiresRestart = Object.keys(updates).some((key) => restartSensitiveKeys.includes(key));
 
-    settingsDb.JSON({
-      ...currentSettings,
-      ...updates
-    });
-    settingsDb.sync();
+    persistSettingsPatch(updates);
     res.json({ success: true, requiresRestart });
   } catch (err) {
     console.error('Error updating settings:', err);
     res.status(400).json({ success: false, message: err.message || 'Error updating settings.' });
+  }
+});
+
+app.get('/api/typography-profiles', requireAdmin, (req, res) => {
+  try {
+    res.json({
+      success: true,
+      ...buildTypographySettingsPayload()
+    });
+  } catch (error) {
+    console.error('Error fetching typography profiles:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Unable to load Dyslibria typography profiles.'
+    });
+  }
+});
+
+app.post('/api/typography-profiles/selection', requireAdmin, (req, res) => {
+  try {
+    const customProfiles = readStoredCustomTypographyProfiles();
+    const selectionType = String(req.body.type || '').trim().toLowerCase();
+    const selectionId = selectionType === 'preset'
+      ? (resolvePresetId(req.body.id) || '')
+      : String(req.body.id || '').trim();
+
+    const nextSelection = resolveTypographySelection({
+      type: selectionType,
+      id: selectionId
+    }, customProfiles, {
+      strict: true
+    });
+
+    persistSettingsPatch({
+      [TYPOGRAPHY_SELECTION_KEY]: {
+        type: nextSelection.type,
+        id: nextSelection.id
+      }
+    });
+
+    res.json({
+      success: true,
+      activeSelection: {
+        type: nextSelection.type,
+        id: nextSelection.id,
+        label: nextSelection.label,
+        description: nextSelection.description
+      }
+    });
+  } catch (error) {
+    console.error('Error selecting typography profile:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Unable to select the Dyslibria typography profile.'
+    });
+  }
+});
+
+app.post('/api/typography-profiles/custom', requireAdmin, (req, res) => {
+  try {
+    const customProfiles = readStoredCustomTypographyProfiles();
+    const importedProfile = importCustomTypographyProfile({
+      label: req.body.label,
+      filename: req.body.filename,
+      profileJson: req.body.profileJson
+    });
+
+    customProfiles.push(importedProfile);
+    persistSettingsPatch({
+      [CUSTOM_TYPOGRAPHY_PROFILES_KEY]: customProfiles
+    });
+
+    res.status(201).json({
+      success: true,
+      profile: importedProfile
+    });
+  } catch (error) {
+    console.error('Error importing custom typography profile:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Unable to import the custom typography profile.'
+    });
+  }
+});
+
+app.delete('/api/typography-profiles/custom/:id', requireAdmin, (req, res) => {
+  try {
+    const customProfiles = readStoredCustomTypographyProfiles();
+    const profileId = String(req.params.id || '').trim();
+    const nextProfiles = customProfiles.filter((profile) => profile.id !== profileId);
+
+    if (nextProfiles.length === customProfiles.length) {
+      res.status(404).json({
+        success: false,
+        message: 'The custom typography profile could not be found.'
+      });
+      return;
+    }
+
+    const nextSelection = resolveTypographySelection(
+      settingsDb.has(TYPOGRAPHY_SELECTION_KEY)
+        ? settingsDb.get(TYPOGRAPHY_SELECTION_KEY)
+        : { type: 'preset', id: DEFAULT_PRESET_ID },
+      nextProfiles
+    );
+
+    persistSettingsPatch({
+      [CUSTOM_TYPOGRAPHY_PROFILES_KEY]: nextProfiles,
+      [TYPOGRAPHY_SELECTION_KEY]: {
+        type: nextSelection.type,
+        id: nextSelection.id
+      }
+    });
+
+    res.json({
+      success: true,
+      activeSelection: {
+        type: nextSelection.type,
+        id: nextSelection.id,
+        label: nextSelection.label
+      }
+    });
+  } catch (error) {
+    console.error('Error deleting custom typography profile:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Unable to delete the custom typography profile.'
+    });
   }
 });
 

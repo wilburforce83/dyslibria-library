@@ -1,4 +1,4 @@
-const STATIC_CACHE = 'dyslibria-assets-v15';
+const STATIC_CACHE = 'dyslibria-assets-v16';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/app-theme.js',
@@ -21,6 +21,10 @@ function isCacheableRequest(request, url) {
   }
 
   if (url.pathname === '/' || url.pathname === '/login' || url.pathname === '/sw.js') {
+    return false;
+  }
+
+  if (url.pathname.startsWith('/authenticated/')) {
     return false;
   }
 

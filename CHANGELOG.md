@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.3 - 2026-05-01
+
+### Changed
+
+- expanded the reader display controls with real paper texture assets plus much wider font-size and line-height ranges for accessibility tuning
+- refreshed the built-in Dyslibria preset copy in `Settings` so the default and support presets now describe whole-word highlighting accurately
+- made typography preset previews render on a neutral page-like surface and isolated each preview stylesheet so one preset can no longer visually override the others
+
+### Fixed
+
+- restored the reader line-height slider so it correctly overrides embedded Dyslibria EPUB styles during live reading
+
 ## 1.1.2 - 2026-04-25
 
 ### Changed

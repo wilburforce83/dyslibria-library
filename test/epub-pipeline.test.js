@@ -107,9 +107,11 @@ test('convertBook transforms readable text but leaves preformatted blocks alone'
 
   assert.ok(result.outputPath);
   assert.equal(result.stats.processedFiles, 1);
-  assert.match(content, /<p><b>Th<\/b>is <b>sm<\/b>oke <b>te<\/b>st/);
+  assert.match(content, /dyslibria-engine/);
+  assert.match(content, /dyslibria-paragraph/);
+  assert.match(content, /dyslibria-word--emphasised/);
   assert.match(content, /<pre>Literal sample text<\/pre>/);
-  assert.doesNotMatch(content, /<pre><b>/);
+  assert.doesNotMatch(content, /<pre>.*dyslibria-word/s);
 });
 
 test('convertBook escapes stray ampersands without double-escaping valid entities', async () => {
@@ -126,11 +128,11 @@ test('convertBook escapes stray ampersands without double-escaping valid entitie
   const content = new AdmZip(outputPath).readAsText('OEBPS/chapter1.xhtml');
 
   assert.equal(result.stats.processedFiles, 1);
-  assert.match(content, /<b>A<\/b>T&amp;<b>T<\/b>/);
-  assert.match(content, /<b>T<\/b>om &amp; <b>Je<\/b>rry &amp; <b>Bl<\/b>ues/);
+  assert.match(content, /AT&amp;T/);
+  assert.match(content, /Tom &amp;/);
+  assert.match(content, /&amp; Blues/);
   assert.match(content, /<pre>R&amp;D &amp;&amp; Co\.<\/pre>/);
   assert.doesNotMatch(content, /&amp;amp;/);
-  assert.doesNotMatch(content, /&amp;<b>a<\/b>mp;/);
 });
 
 test('convertBook can handle XHTML fragments without a body wrapper', async () => {
@@ -140,7 +142,9 @@ test('convertBook can handle XHTML fragments without a body wrapper', async () =
   const content = new AdmZip(outputPath).readAsText('OEBPS/chapter1.xhtml');
 
   assert.equal(result.stats.processedFiles, 1);
-  assert.match(content, /<p><b>Lo<\/b>ose <b>frag<\/b>ment <b>te<\/b>xt <b>on<\/b>ly\.<\/p>/);
+  assert.match(content, /dyslibria-engine/);
+  assert.match(content, /dyslibria-paragraph/);
+  assert.match(content, /fragment/);
 });
 
 test('convertBook writes EPUB entry paths using forward slashes', async () => {

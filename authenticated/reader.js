@@ -17,6 +17,30 @@
     disableDyslibria: false
   };
 
+  const numericSettingRanges = {
+    fontSize: { min: 50, max: 235, step: 5, defaultValue: defaultSettings.fontSize },
+    lineHeight: { min: 1.1, max: 2.5, step: 0.05, defaultValue: defaultSettings.lineHeight },
+    pageMargin: { min: 3, max: 12, step: 0.5, defaultValue: defaultSettings.pageMargin }
+  };
+
+  const themeOptions = [
+    { id: 'paper', name: 'Paper', mode: 'light' },
+    { id: 'cream', name: 'Warm cream', mode: 'light' },
+    { id: 'sepia', name: 'Soft sepia', mode: 'light' },
+    { id: 'dusk', name: 'Dusk paper', mode: 'light' },
+    { id: 'sage', name: 'Sage paper', mode: 'light' },
+    { id: 'slate', name: 'Slate paper', mode: 'light' },
+    { id: 'cotton', name: 'Cotton texture', mode: 'light' },
+    { id: 'parchment', name: 'Parchment grain', mode: 'light' },
+    { id: 'midnight', name: 'Midnight', mode: 'dark' }
+  ];
+  const themeIds = themeOptions.map(function (option) {
+    return `theme-${option.id}`;
+  });
+  const themeModes = Object.fromEntries(themeOptions.map(function (option) {
+    return [option.id, option.mode];
+  }));
+
   let appPalette = window.DyslibriaTheme
     ? window.DyslibriaTheme.applyPalette(window.DyslibriaTheme.DEFAULT_COLOR_KEY, document.documentElement)
     : null;
@@ -205,6 +229,38 @@
     return fontFamilies[nextValue] ? nextValue : defaultSettings.fontFamily;
   }
 
+  function normalizeThemeKey(value) {
+    const normalizedValue = String(value || '').trim();
+    return Object.prototype.hasOwnProperty.call(themeModes, normalizedValue)
+      ? normalizedValue
+      : defaultSettings.theme;
+  }
+
+  function clampNumber(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function normalizeNumericSetting(value, config) {
+    const numericValue = Number(value);
+    const safeValue = Number.isFinite(numericValue) ? numericValue : config.defaultValue;
+    const clampedValue = clampNumber(safeValue, config.min, config.max);
+
+    if (!config.step || config.step <= 0) {
+      return clampedValue;
+    }
+
+    const roundedSteps = Math.round((clampedValue - config.min) / config.step);
+    const normalizedValue = config.min + roundedSteps * config.step;
+    const stepPrecision = String(config.step).split('.')[1];
+    const precision = stepPrecision ? stepPrecision.length : 0;
+
+    return Number(normalizedValue.toFixed(precision));
+  }
+
+  function formatSliderNumber(value, maxDecimals = 2) {
+    return Number(value).toFixed(maxDecimals).replace(/\.?0+$/, '');
+  }
+
   function escapeHtml(value) {
     return String(value || '')
       .replace(/&/g, '&amp;')
@@ -276,8 +332,26 @@
     updateFontChoiceSelection();
   }
 
+  function renderThemeChoices() {
+    if (!elements.themeSelect) {
+      return;
+    }
+
+    elements.themeSelect.innerHTML = '';
+    themeOptions.forEach(function (option) {
+      const selectOption = document.createElement('option');
+      selectOption.value = option.id;
+      selectOption.textContent = option.name;
+      elements.themeSelect.appendChild(selectOption);
+    });
+  }
+
   const settings = parseStoredJson(SETTINGS_STORAGE_KEY, defaultSettings);
+  settings.theme = normalizeThemeKey(settings.theme);
   settings.fontFamily = normalizeFontFamilyKey(settings.fontFamily);
+  settings.fontSize = normalizeNumericSetting(settings.fontSize, numericSettingRanges.fontSize);
+  settings.lineHeight = normalizeNumericSetting(settings.lineHeight, numericSettingRanges.lineHeight);
+  settings.pageMargin = normalizeNumericSetting(settings.pageMargin, numericSettingRanges.pageMargin);
   settings.flow = 'paginated';
   settings.disableDyslibria = Boolean(settings.disableDyslibria);
 
@@ -376,6 +450,15 @@
   }
 
   function updateSettingLabels() {
+    elements.fontSizeInput.min = String(numericSettingRanges.fontSize.min);
+    elements.fontSizeInput.max = String(numericSettingRanges.fontSize.max);
+    elements.fontSizeInput.step = String(numericSettingRanges.fontSize.step);
+    elements.lineHeightInput.min = String(numericSettingRanges.lineHeight.min);
+    elements.lineHeightInput.max = String(numericSettingRanges.lineHeight.max);
+    elements.lineHeightInput.step = String(numericSettingRanges.lineHeight.step);
+    elements.pageMarginInput.min = String(numericSettingRanges.pageMargin.min);
+    elements.pageMarginInput.max = String(numericSettingRanges.pageMargin.max);
+    elements.pageMarginInput.step = String(numericSettingRanges.pageMargin.step);
     elements.themeSelect.value = settings.theme;
     elements.fontSizeInput.value = settings.fontSize;
     elements.lineHeightInput.value = settings.lineHeight;
@@ -383,8 +466,8 @@
     elements.layoutSelect.value = settings.layout;
     elements.disableDyslibriaInput.checked = settings.disableDyslibria;
     elements.fontSizeValue.textContent = `${settings.fontSize}%`;
-    elements.lineHeightValue.textContent = Number(settings.lineHeight).toFixed(1);
-    elements.pageMarginValue.textContent = `${Number(settings.pageMargin).toFixed(1)}%`;
+    elements.lineHeightValue.textContent = formatSliderNumber(settings.lineHeight);
+    elements.pageMarginValue.textContent = `${formatSliderNumber(settings.pageMargin, 1)}%`;
     updateFontChoiceSelection();
   }
 
@@ -416,18 +499,21 @@
   }
 
   function applyShellTheme() {
-    elements.app.classList.remove('theme-paper', 'theme-sepia', 'theme-midnight');
+    themeIds.forEach(function (themeClassName) {
+      elements.app.classList.remove(themeClassName);
+    });
     elements.app.classList.add(`theme-${settings.theme}`);
 
     const metaTheme = document.querySelector('meta[name="theme-color"]');
+    const themeMode = themeModes[settings.theme] === 'dark' ? 'dark' : 'light';
     if (metaTheme) {
       if (window.DyslibriaTheme && appPalette) {
         metaTheme.setAttribute(
           'content',
-          window.DyslibriaTheme.getMetaThemeColor(settings.theme === 'midnight' ? 'dark' : 'light', appPalette)
+          window.DyslibriaTheme.getMetaThemeColor(themeMode, appPalette)
         );
       } else {
-        metaTheme.setAttribute('content', settings.theme === 'midnight' ? '#0f1620' : '#18281f');
+        metaTheme.setAttribute('content', themeMode === 'dark' ? '#0f1620' : '#18281f');
       }
     }
   }
@@ -509,7 +595,7 @@
   }
 
   function getReaderPageMargins() {
-    const pageMargin = Math.max(3, Math.min(12, Number(settings.pageMargin) || defaultSettings.pageMargin));
+    const pageMargin = normalizeNumericSetting(settings.pageMargin, numericSettingRanges.pageMargin);
     const verticalPageMargin = Math.max(2.5, Math.min(10, pageMargin - (window.innerWidth < 700 ? 0.2 : 0.8)));
 
     return {
@@ -772,16 +858,296 @@
     });
   }
 
-  function buildContentPresentationStyles() {
-    if (!settings.disableDyslibria) {
-      return '';
+  function normalizeInlineText(value) {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  function isCoverLikeDocument(doc) {
+    if (!doc || !doc.body) {
+      return false;
     }
 
-    return `
-      b {
-        font-weight: inherit !important;
+    const body = doc.body;
+    const root = doc.documentElement;
+
+    if (body.classList.contains('x-ebookmaker-coverpage')) {
+      return true;
+    }
+
+    if (root && root.classList && root.classList.contains('x-ebookmaker-coverpage')) {
+      return true;
+    }
+
+    if (body.querySelector('.x-ebookmaker-cover')) {
+      return true;
+    }
+
+    const images = body.querySelectorAll('img, picture img');
+    if (images.length !== 1) {
+      return false;
+    }
+
+    if (body.querySelector('table, ul, ol, dl, pre, code, article, section, aside, main, nav')) {
+      return false;
+    }
+
+    const readableBlocks = Array.from(
+      body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, figcaption, blockquote')
+    ).filter(function (element) {
+      return normalizeInlineText(element.textContent);
+    });
+
+    if (readableBlocks.length > 0) {
+      return false;
+    }
+
+    const childTags = Array.from(body.children).map(function (element) {
+      return element.tagName.toLowerCase();
+    });
+    const compactWrapper = childTags.every(function (tagName) {
+      return ['div', 'figure', 'img', 'picture', 'a', 'br'].includes(tagName);
+    });
+
+    if (!compactWrapper) {
+      return false;
+    }
+
+    const bodyText = normalizeInlineText(body.textContent);
+    const anchorLabels = Array.from(body.querySelectorAll('a'))
+      .map(function (anchor) {
+        return normalizeInlineText(anchor.textContent);
+      })
+      .filter(Boolean);
+    const onlyCoverNavigation =
+      anchorLabels.length > 0 &&
+      anchorLabels.every(function (label) {
+        return ['back', 'cover', 'front cover', 'title page', 'continue'].includes(label);
+      });
+    const titleHint = /cover|jacket|linked image/.test(normalizeInlineText(doc.title));
+
+    return (
+      titleHint ||
+      bodyText === '' ||
+      bodyText === 'back' ||
+      bodyText === 'cover' ||
+      onlyCoverNavigation
+    );
+  }
+
+  function updateCoverPresentationMode(doc) {
+    if (!doc || !doc.body) {
+      return;
+    }
+
+    const isCoverPage = isCoverLikeDocument(doc);
+    const root = doc.documentElement;
+    const coverNavigationLabels = ['back', 'cover', 'front cover', 'title page', 'continue'];
+
+    Array.from(doc.querySelectorAll('a')).forEach(function (anchor) {
+      const label = normalizeInlineText(anchor.textContent);
+      const isCoverNavigationLink =
+        !anchor.querySelector('img, picture, svg') &&
+        coverNavigationLabels.includes(label);
+
+      if (isCoverPage && isCoverNavigationLink) {
+        anchor.setAttribute('data-dyslibria-cover-nav', 'true');
+      } else {
+        anchor.removeAttribute('data-dyslibria-cover-nav');
       }
+    });
+
+    if (root) {
+      if (isCoverPage) {
+        root.setAttribute('data-dyslibria-cover-page', 'true');
+      } else {
+        root.removeAttribute('data-dyslibria-cover-page');
+      }
+    }
+
+    if (isCoverPage) {
+      doc.body.setAttribute('data-dyslibria-cover-page', 'true');
+    } else {
+      doc.body.removeAttribute('data-dyslibria-cover-page');
+    }
+  }
+
+  function buildContentPresentationStyles() {
+    const readerStyleSource = elements.app || document.documentElement;
+    const readerStyles = window.getComputedStyle(readerStyleSource);
+    const fontFamily = fontFamilies[settings.fontFamily] || fontFamilies.accessible;
+    const pageText = readerStyles.getPropertyValue('--reader-page-text').trim() || '#1b1a18';
+    const readerAccent = readerStyles.getPropertyValue('--reader-accent').trim() || '#d05834';
+
+    const dyslibriaOffRules = settings.disableDyslibria
+      ? `
+      b,
+      strong,
+      .dyslibria-tier-primary,
+      .dyslibria-tier-secondary,
+      .dyslibria-tier-tertiary,
+      .dl-anchor-primary,
+      .dl-anchor-secondary,
+      .dl-anchor-tertiary,
+      .dyslibria-frontload-prefix,
+      .dl-prefix {
+        font-weight: inherit !important;
+        opacity: 1 !important;
+      }
+
+      .dyslibria-tier-spacing,
+      .dl-spacing-only {
+        letter-spacing: inherit !important;
+      }
+
+      .dyslibria-tier-marker,
+      .dl-marker-only {
+        box-shadow: none !important;
+      }
+    `
+      : '';
+
+    return `
+      html,
+      body {
+        -webkit-text-size-adjust: 100% !important;
+        text-size-adjust: 100% !important;
+        background: transparent !important;
+        background-color: transparent !important;
+        background-image: none !important;
+        color: ${pageText} !important;
+      }
+
+      body {
+        font-family: ${fontFamily} !important;
+        line-height: ${String(settings.lineHeight)} !important;
+        text-rendering: optimizeLegibility;
+      }
+
+      img,
+      svg,
+      video,
+      canvas,
+      figure,
+      picture {
+        max-width: 100% !important;
+        height: auto !important;
+        background: transparent !important;
+        background-color: transparent !important;
+      }
+
+      a,
+      a:visited {
+        color: ${readerAccent} !important;
+      }
+
+      .dyslibria-engine,
+      .dl-engine,
+      .dyslibria-paragraph,
+      .dl-paragraph,
+      .dyslibria-word,
+      .dl-word,
+      .dyslibria-zone,
+      .dl-zone,
+      .dyslibria-frontload-remainder,
+      .dl-frontload-remainder,
+      .dyslibria-frontload-prefix,
+      .dl-prefix {
+        color: inherit !important;
+        line-height: ${String(settings.lineHeight)} !important;
+        white-space: normal !important;
+      }
+
+      html[data-dyslibria-cover-page="true"],
+      body[data-dyslibria-cover-page="true"] {
+        background: transparent !important;
+        background-color: transparent !important;
+      }
+
+      body[data-dyslibria-cover-page="true"] {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        max-width: none !important;
+        min-height: 100% !important;
+      }
+
+      body[data-dyslibria-cover-page="true"].dyslibria-engine,
+      body[data-dyslibria-cover-page="true"].dl-engine {
+        max-width: none !important;
+      }
+
+      body[data-dyslibria-cover-page="true"] .x-ebookmaker-cover,
+      body[data-dyslibria-cover-page="true"] .x-ebookmaker-wrapper,
+      body[data-dyslibria-cover-page="true"] .dyslibria-paragraph,
+      body[data-dyslibria-cover-page="true"] .dl-paragraph,
+      body[data-dyslibria-cover-page="true"] figure,
+      body[data-dyslibria-cover-page="true"] picture,
+      body[data-dyslibria-cover-page="true"] div {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        max-width: none !important;
+        width: auto !important;
+        height: auto !important;
+        text-indent: 0 !important;
+      }
+
+      body[data-dyslibria-cover-page="true"] img,
+      body[data-dyslibria-cover-page="true"] picture img {
+        display: block !important;
+        margin: 0 auto !important;
+        max-width: 100% !important;
+        max-height: 100% !important;
+        object-fit: contain !important;
+      }
+
+      body[data-dyslibria-cover-page="true"] a[data-dyslibria-cover-nav="true"],
+      body[data-dyslibria-cover-page="true"] br {
+        display: none !important;
+      }
+
+      ${dyslibriaOffRules}
     `;
+  }
+
+  function buildRenditionThemeRules() {
+    const readerStyleSource = elements.app || document.documentElement;
+    const readerStyles = window.getComputedStyle(readerStyleSource);
+    const fontFamily = fontFamilies[settings.fontFamily] || fontFamilies.accessible;
+    const pageText = readerStyles.getPropertyValue('--reader-page-text').trim() || '#1b1a18';
+
+    return {
+      html: {
+        '-webkit-text-size-adjust': '100% !important',
+        'text-size-adjust': '100% !important',
+        'background': 'transparent !important',
+        'background-color': 'transparent !important',
+        'background-image': 'none !important',
+        'color': `${pageText} !important`
+      },
+      body: {
+        'font-family': `${fontFamily} !important`,
+        'line-height': `${String(settings.lineHeight)} !important`,
+        'text-rendering': 'optimizeLegibility',
+        'background': 'transparent !important',
+        'background-color': 'transparent !important',
+        'background-image': 'none !important',
+        'color': `${pageText} !important`
+      },
+      'img, svg, video, canvas': {
+        'max-width': '100%',
+        height: 'auto'
+      },
+      'figure, picture': {
+        'max-width': '100%'
+      }
+    };
   }
 
   function applyContentPresentationOverrides(contents) {
@@ -790,6 +1156,7 @@
     }
 
     const doc = contents.document;
+    updateCoverPresentationMode(doc);
     let styleTag = doc.getElementById('dyslibriaContentOverrides');
 
     if (!styleTag) {
@@ -836,32 +1203,11 @@
       return;
     }
 
-    const fontFamily = fontFamilies[settings.fontFamily] || fontFamilies.accessible;
-    const themeRules = {
-      html: {
-        '-webkit-text-size-adjust': '100%',
-        'text-size-adjust': '100%'
-      },
-      body: {
-        'font-family': fontFamily,
-        'line-height': String(settings.lineHeight),
-        'text-rendering': 'optimizeLegibility'
-      },
-      'img, svg, video, canvas': {
-        'max-width': '100%',
-        height: 'auto'
-      },
-      'figure, picture': {
-        'max-width': '100%'
-      }
-    };
-
     applyViewerMargins();
 
-    // Keep reader overrides ergonomic rather than editorial. The reader should
-    // manage typography, sizing, and fit, while the book keeps its own colours,
-    // emphasis, spacing, links, and general visual personality.
-    rendition.themes.default(themeRules);
+    // The reader should remain themeable and readable first, while Dyslibria
+    // continues to control structure and emphasis inside the EPUB itself.
+    rendition.themes.default(buildRenditionThemeRules());
 
     rendition.themes.fontSize(`${settings.fontSize}%`);
     rendition.flow('paginated');
@@ -1052,21 +1398,21 @@
     });
 
     elements.fontSizeInput.addEventListener('input', function () {
-      settings.fontSize = Number(this.value);
+      settings.fontSize = normalizeNumericSetting(this.value, numericSettingRanges.fontSize);
       updateSettingLabels();
       applyReaderSettings();
       persistSettings();
     });
 
     elements.lineHeightInput.addEventListener('input', function () {
-      settings.lineHeight = Number(this.value);
+      settings.lineHeight = normalizeNumericSetting(this.value, numericSettingRanges.lineHeight);
       updateSettingLabels();
       applyReaderSettings();
       persistSettings();
     });
 
     elements.pageMarginInput.addEventListener('input', function () {
-      settings.pageMargin = Number(this.value);
+      settings.pageMargin = normalizeNumericSetting(this.value, numericSettingRanges.pageMargin);
       updateSettingLabels();
       applyReaderSettings();
       persistSettings();
@@ -1110,6 +1456,7 @@
     }
 
     await loadAppConfig();
+    renderThemeChoices();
     renderFontChoices();
     updateSettingLabels();
     applyShellTheme();

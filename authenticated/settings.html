@@ -216,6 +216,57 @@
           </form>
         </section>
 
+        <section class="settings-section admin-section" id="typographySection" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Typography</p>
+              <h2>Dyslibria conversion profiles</h2>
+            </div>
+          </div>
+
+          <p class="settings-copy">
+            Choose the Dyslibria typography profile used when new EPUBs are converted into your library. Existing
+            books are left as they are until you upload or reconvert them again.
+          </p>
+
+          <div class="profile-summary typography-summary">
+            <div>
+              <strong id="activeTypographyLabel">Loading typography profiles…</strong>
+              <p id="activeTypographyDescription">Previews below are rendered by the shared Dyslibria converter engine.</p>
+            </div>
+            <span class="meta-pill" id="activeTypographyBadge">Loading…</span>
+          </div>
+
+          <div class="typography-import-shell">
+            <form class="ui form stacked-grid" id="typographyImportForm">
+              <div class="fields">
+                <div class="field">
+                  <label>Custom profile name</label>
+                  <input type="text" name="label" placeholder="Optional label for the imported profile">
+                </div>
+                <div class="field">
+                  <label>Import JSON file</label>
+                  <input type="file" id="typographyFileInput" accept=".json,application/json">
+                </div>
+              </div>
+              <div class="field">
+                <label>Profile JSON or reader configuration JSON</label>
+                <textarea name="profileJson" id="typographyJsonInput" rows="9"
+                  placeholder='Paste a Dyslibria profile or reader configuration JSON here.'></textarea>
+              </div>
+              <div class="section-actions">
+                <button class="ui button app-button accent" type="submit" id="importTypographyButton">Add custom profile</button>
+                <button class="ui button app-button ghost" type="button" id="clearTypographyJsonButton">Clear JSON</button>
+              </div>
+              <p class="settings-copy">
+                Imported custom profiles are saved on this server and appear alongside the built-in Dyslibria presets.
+              </p>
+            </form>
+          </div>
+
+          <div class="typography-grid" id="typographyProfileGrid" aria-live="polite"></div>
+        </section>
+
         <section class="settings-section admin-section" id="usersSection" hidden>
           <div class="section-heading">
             <div>

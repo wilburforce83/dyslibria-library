@@ -22,6 +22,20 @@ You can run it on a home server, NAS, VPS, mini PC, or a small classroom/communi
 - quarantine for failed conversions instead of silently publishing broken files
 - Docker-first deployment with persistent storage
 
+## Dyslibria Typography Profiles
+
+Administrator accounts can now choose the Dyslibria typography profile used for new EPUB conversions.
+
+From `Settings`, you can:
+
+- choose from the built-in Dyslibria presets
+- preview each preset against a shared sample text
+- import custom profile JSON files
+- import full Dyslibria reader-configuration JSON files
+- select which profile future uploads should use
+
+Custom profiles are stored in the server database and appear alongside the built-in presets in the same list.
+
 ## Quick Start With Docker Compose
 
 The included Compose file pulls the published image from Docker Hub:

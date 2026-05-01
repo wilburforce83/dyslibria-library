@@ -78,7 +78,7 @@
         <div>
           <p class="eyebrow">Display</p>
           <h1>Reader settings</h1>
-          <p class="reader-subtitle">Adjust typography and layout without flattening the book’s own design.</p>
+          <p class="reader-subtitle">Adjust typography and layout while keeping the page aligned with your chosen reader theme.</p>
         </div>
         <button class="text-button" id="closeSettings" type="button">Close</button>
       </div>
@@ -90,7 +90,13 @@
               <span>Reader theme</span>
               <select id="themeSelect">
                 <option value="paper">Paper</option>
-                <option value="sepia">Sepia</option>
+                <option value="cream">Warm cream</option>
+                <option value="sepia">Soft sepia</option>
+                <option value="dusk">Dusk paper</option>
+                <option value="sage">Sage paper</option>
+                <option value="slate">Slate paper</option>
+                <option value="cotton">Cotton texture</option>
+                <option value="parchment">Parchment grain</option>
                 <option value="midnight">Midnight</option>
               </select>
             </label>
@@ -106,12 +112,12 @@
 
             <label class="setting-field">
               <span>Font size <strong id="fontSizeValue">110%</strong></span>
-              <input id="fontSizeInput" type="range" min="90" max="160" step="5" value="110">
+              <input id="fontSizeInput" type="range" min="50" max="235" step="5" value="110">
             </label>
 
             <label class="setting-field">
               <span>Line height <strong id="lineHeightValue">1.6</strong></span>
-              <input id="lineHeightInput" type="range" min="1.3" max="2" step="0.1" value="1.6">
+              <input id="lineHeightInput" type="range" min="1.1" max="2.5" step="0.05" value="1.6">
             </label>
 
             <label class="setting-field">
