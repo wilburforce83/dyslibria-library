@@ -1,6 +1,6 @@
 {
     "name": "epub-processor",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "description": "Self-hosted EPUB processing and library management with bionic text conversion.",
     "main": "server.js",
     "scripts": {
@@ -13,7 +13,7 @@
         "chokidar": "^4.0.3",
         "compression": "^1.8.1",
         "dotenv": "^16.4.5",
-        "dyslibria-converter": "^2.0.1",
+        "dyslibria-converter": "^2.0.2",
         "express": "^5.1.0",
         "express-fileupload": "^1.5.2",
         "express-session": "^1.19.0",
