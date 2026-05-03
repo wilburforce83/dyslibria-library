@@ -125,6 +125,7 @@ input {
 #viewer .epub-container,
 #viewer .epub-view {
   height: 100%;
+  overflow: hidden !important;
 }
 
 .eyebrow {
@@ -513,12 +514,14 @@ input {
   display: block;
   font-size: 1.04rem;
   line-height: 1.25;
+  font-weight: 700;
 }
 
 .font-choice-preview {
   display: block;
   font-size: 0.97rem;
   line-height: 1.35;
+  font-weight: 500;
 }
 
 .font-choice-note {
@@ -529,7 +532,8 @@ input {
 }
 
 .font-choice b,
-.font-choice strong {
+.font-choice strong,
+.font-choice-anchor {
   font-weight: 700;
 }
 

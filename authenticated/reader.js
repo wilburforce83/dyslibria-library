@@ -5,6 +5,11 @@
 
   const SETTINGS_STORAGE_KEY = 'dyslibria:reader-settings:v1';
   const LOCATION_STORAGE_KEY = fileName ? `dyslibria:reader:${fileName}` : '';
+  const AUTO_SPREAD_MIN_WIDTH = 1180;
+  const previewFunctionWords = new Set([
+    'a', 'an', 'and', 'as', 'at', 'but', 'by', 'can', 'for', 'from', 'help', 'in', 'keep',
+    'less', 'make', 'more', 'of', 'on', 'or', 'the', 'to', 'with', 'without'
+  ]);
 
   const defaultSettings = {
     theme: 'paper',
@@ -198,6 +203,7 @@
   let readingDirection = 'ltr';
   let flatTocEntries = [];
   let progressSaveTimer = null;
+  let layoutRealignTimer = null;
   let latestProgress = {
     location: '',
     progressPercent: 0,
@@ -270,20 +276,73 @@
       .replace(/'/g, '&#39;');
   }
 
-  function createDyslibriaMarkup(text) {
+  function getPreviewAnchorWordIndexes(words) {
+    const targetCount = Math.max(1, Math.min(3, Math.round(words.length / 4)));
+    const candidates = words
+      .map(function (word, index) {
+        const normalizedWord = word.toLowerCase();
+        const isFunctionWord = previewFunctionWords.has(normalizedWord);
+        return {
+          index,
+          word,
+          score: word.length + (isFunctionWord ? 0 : 1.5) - index * 0.08
+        };
+      })
+      .filter(function (entry) {
+        return entry.word.length >= 4;
+      })
+      .sort(function (left, right) {
+        return right.score - left.score;
+      });
+    const selectedIndexes = [];
+
+    candidates.forEach(function (candidate) {
+      if (selectedIndexes.length >= targetCount) {
+        return;
+      }
+
+      const hasNearbyAnchor = selectedIndexes.some(function (selectedIndex) {
+        return Math.abs(selectedIndex - candidate.index) < 2;
+      });
+
+      if (!hasNearbyAnchor) {
+        selectedIndexes.push(candidate.index);
+      }
+    });
+
+    if (!selectedIndexes.length && words.length) {
+      selectedIndexes.push(0);
+    }
+
+    return new Set(selectedIndexes);
+  }
+
+  function createDyslibriaPreviewMarkup(text) {
     const wordPattern = /([A-Za-z][A-Za-z'-]*)/g;
-    let output = '';
-    let lastIndex = 0;
+    const matches = [];
     let match = null;
 
     while ((match = wordPattern.exec(text)) !== null) {
-      output += escapeHtml(text.slice(lastIndex, match.index));
-
-      const word = match[0];
-      const boldLength = Math.max(1, Math.ceil(word.length / 2));
-      output += `<b>${escapeHtml(word.slice(0, boldLength))}</b>${escapeHtml(word.slice(boldLength))}`;
-      lastIndex = match.index + word.length;
+      matches.push({
+        index: matches.length,
+        start: match.index,
+        word: match[0]
+      });
     }
+
+    const anchorIndexes = getPreviewAnchorWordIndexes(matches.map(function (entry) {
+      return entry.word;
+    }));
+    let output = '';
+    let lastIndex = 0;
+
+    matches.forEach(function (entry) {
+      output += escapeHtml(text.slice(lastIndex, entry.start));
+      output += anchorIndexes.has(entry.index)
+        ? `<strong class="font-choice-anchor">${escapeHtml(entry.word)}</strong>`
+        : escapeHtml(entry.word);
+      lastIndex = entry.start + entry.word.length;
+    });
 
     output += escapeHtml(text.slice(lastIndex));
     return output;
@@ -316,8 +375,8 @@
       button.style.fontFamily = option.family;
       button.setAttribute('aria-label', option.name);
       button.innerHTML = `
-        <span class="font-choice-name">${createDyslibriaMarkup(option.name)}</span>
-        <span class="font-choice-preview">${createDyslibriaMarkup(option.preview)}</span>
+        <span class="font-choice-name">${escapeHtml(option.name)}</span>
+        <span class="font-choice-preview">${createDyslibriaPreviewMarkup(option.preview)}</span>
         <span class="font-choice-note">${escapeHtml(option.note)}</span>
       `;
       button.addEventListener('click', function () {
@@ -587,11 +646,7 @@
   }
 
   function getDisplaySpread() {
-    if (settings.layout !== 'auto') {
-      return settings.layout;
-    }
-
-    return window.innerWidth >= 1200 ? 'always' : 'none';
+    return settings.layout === 'auto' ? 'auto' : settings.layout;
   }
 
   function getReaderPageMargins() {
@@ -619,12 +674,50 @@
       return;
     }
 
-    const width = elements.viewer.clientWidth;
-    const height = elements.viewer.clientHeight;
+    const width = Math.floor(elements.viewer.clientWidth);
+    const height = Math.floor(elements.viewer.clientHeight);
 
     if (width > 0 && height > 0) {
       rendition.resize(width, height);
     }
+  }
+
+  function getStableLocationTarget() {
+    if (rendition && typeof rendition.currentLocation === 'function') {
+      const location = rendition.currentLocation();
+      if (location && location.start && location.start.cfi) {
+        return location.start.cfi;
+      }
+    }
+
+    return latestProgress.location || requestedLocation || getSavedLocalLocation() || '';
+  }
+
+  function scheduleLayoutRealignment() {
+    if (!rendition || !rendition.manager || !rendition.manager.isRendered()) {
+      return;
+    }
+
+    if (layoutRealignTimer) {
+      clearTimeout(layoutRealignTimer);
+    }
+
+    layoutRealignTimer = setTimeout(function () {
+      layoutRealignTimer = null;
+
+      if (!rendition) {
+        return;
+      }
+
+      const targetLocation = getStableLocationTarget();
+      if (!targetLocation) {
+        return;
+      }
+
+      Promise.resolve(rendition.display(targetLocation)).catch(function (error) {
+        console.warn('Unable to realign the paginated spread after a layout change:', error);
+      });
+    }, 48);
   }
 
   function isInteractiveTarget(target) {
@@ -1214,6 +1307,7 @@
     rendition.spread(getDisplaySpread());
     updateOpenContentPresentationOverrides();
     resizeRendition();
+    scheduleLayoutRealignment();
   }
 
   function updateMetadata(title, author) {
@@ -1473,7 +1567,8 @@
       rendition = book.renderTo('viewer', {
         width: '100%',
         height: '100%',
-        spread: getDisplaySpread()
+        spread: getDisplaySpread(),
+        minSpreadWidth: AUTO_SPREAD_MIN_WIDTH
       });
 
       if (rendition.hooks && rendition.hooks.content) {

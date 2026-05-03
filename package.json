@@ -1,6 +1,6 @@
 {
     "name": "epub-processor",
-    "version": "1.1.5",
+    "version": "1.2.0",
     "description": "Self-hosted EPUB processing and library management with bionic text conversion.",
     "main": "server.js",
     "scripts": {
